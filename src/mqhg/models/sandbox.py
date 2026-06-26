@@ -147,7 +147,7 @@ class HypergraphSandbox:
             )
             sandbox = cls(cfg)
             result = sandbox.run()
-            br = sandbox.measure_backreaction(0, "X")
+            br = sandbox.measure_backreaction(0, "T")
 
             results.append({
                 "phase": float(phi),

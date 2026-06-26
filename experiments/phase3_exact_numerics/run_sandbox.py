@@ -36,8 +36,10 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 def experiment_conjecture_b(n: int = 6):
     """Conjecture B: Stabilizer geometry is too rigid.
 
-    Build stabilizer-only graph states, inject excitations,
-    verify geometry does NOT deform significantly.
+    Build stabilizer-only graph states, inject T-gate excitations,
+    verify geometry deforms LESS than for magic states.
+    T-gate is used because Pauli excitations are gauge-invariant
+    (they preserve |correlator|² for all states).
     """
     print(f"\n{'='*60}")
     print(f"CONJECTURE B TEST: Stabilizer rigidity (n={n})")
@@ -56,7 +58,7 @@ def experiment_conjecture_b(n: int = 6):
         nl_magic = nonlocal_magic(state)
 
         br_obs = BackreactionObservable(state)
-        br = br_obs.measure(0, "X")
+        br = br_obs.measure(0, "T")
 
         print(f"\n  {name} graph:")
         print(f"    SRE = {sre:.6f} (should be ~0 for stabilizer)")
@@ -85,12 +87,12 @@ def experiment_conjecture_c(n: int = 6):
         hg.add_edge((i, i + 1, i + 2))  # 3-body magic edges
     state_magic = HypergraphState(hg).prepare()
 
-    # Compare
+    # Compare using T-gate excitation (non-Pauli, so it genuinely probes geometry)
     for label, state in [("Stabilizer (ring)", state_stab), ("Magic (ring+CCZ)", state_magic)]:
         sre = stabilizer_renyi_entropy(state)
         nl = nonlocal_magic(state)
         br_obs = BackreactionObservable(state)
-        br = br_obs.measure(0, "X")
+        br = br_obs.measure(0, "T")
 
         print(f"\n  {label}:")
         print(f"    SRE = {sre:.6f}")
@@ -165,7 +167,7 @@ def experiment_state_comparison(n: int = 6):
         sre = stabilizer_renyi_entropy(state)
         nl = nonlocal_magic(state)
         br_obs = BackreactionObservable(state)
-        br = br_obs.measure(0, "X")
+        br = br_obs.measure(0, "T")
 
         magic_vals.append(nl)
         br_vals.append(br.distance_change_frobenius)
@@ -204,7 +206,7 @@ def experiment_falsification_test1(n: int = 6):
         sre = stabilizer_renyi_entropy(state)
         nl = nonlocal_magic(state)
         mean_ent = np.mean([subsystem_entropy(state, [q]) for q in range(n)])
-        br = BackreactionObservable(state).measure(0, "X")
+        br = BackreactionObservable(state).measure(0, "T")
 
         print(f"\n  {label}:")
         print(f"    Mean entropy = {mean_ent:.4f}")
