@@ -101,6 +101,36 @@ def correlator_distance_matrix(
     return distances
 
 
+def connected_correlator_matrix(state: Statevector) -> NDArray[np.float64]:
+    """Connected two-point correlation strength matrix G.
+
+    G[i,j] = sqrt( Σ_{P,Q ∈ {X,Y,Z}} |⟨P_i Q_j⟩ - ⟨P_i⟩⟨Q_j⟩|² )
+
+    Involves only weight-≤2 Pauli observables, so it is efficiently estimable
+    from classical shadows (see hardware.fast_shadows). ||G||_F is used as a
+    hardware-measurable backreaction proxy in the scaling study.
+    """
+    n = state.n_qubits
+    paulis = ["X", "Y", "Z"]
+
+    single_exp: dict[tuple[int, str], complex] = {}
+    for i in range(n):
+        for p in paulis:
+            single_exp[(i, p)] = state.expectation(pauli_tensor(p), [i])
+
+    g = np.zeros((n, n), dtype=np.float64)
+    for i in range(n):
+        for j in range(i + 1, n):
+            corr_sum = 0.0
+            for p in paulis:
+                for q in paulis:
+                    PQ = np.kron(pauli_tensor(p), pauli_tensor(q))
+                    connected = state.expectation(PQ, [i, j]) - single_exp[(i, p)] * single_exp[(j, q)]
+                    corr_sum += abs(connected) ** 2
+            g[i, j] = g[j, i] = np.sqrt(corr_sum)
+    return g
+
+
 def mutual_info_graph(
     state: Statevector,
     threshold: float = 0.01,

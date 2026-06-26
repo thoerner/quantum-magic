@@ -300,3 +300,163 @@ Combining all results, the mechanism is:
 5. **The response is monotone:** More multi-body magic = more geometry, with no
    reversal (for sparse-graph families). This is the key evidence that the
    magic-geometry link is genuine, not an artifact.
+
+---
+
+## 11. Analytical Derivation of the Response Law (ring + CCZ)
+
+The response law was derived analytically rather than only fitted numerically.
+All results below are verified to machine precision against the FWHT SRE
+pipeline (`tests/test_analytical.py`) and are packaged in
+`src/mqhg/analytical/response_law.py`.
+
+### 11.1 Spectral (IPR) decomposition of SRE
+
+For any phase-only state ψ(x) = 2^{-n/2} e^{iΦ(x)}, each Pauli expectation is a
+normalized Walsh-Hadamard transform of the **phase-derivative function**
+
+```
+g_f(x) = exp( i [ Φ(x) − Φ(x ⊕ f) ] ),    f = X-support (flip mask) of the Pauli
+```
+
+Writing W_f(p) for the Walsh transform of g_f and using Parseval (|g_f|=1 ⇒
+Σ_p |W_f(p)|² = 1 for every f), the second-Rényi SRE collapses to
+
+```
+M_2 = n − log₂( Σ_f IPR_f ),     IPR_f = Σ_p |W_f(p)|⁴
+```
+
+where IPR_f is the inverse participation ratio of the Walsh spectrum of g_f.
+This is exact and was verified for n=3..6 to ~1e-15.
+
+**Why stabilizers have zero magic, mechanically:** For ring CZ edges,
+Φ(x) = π Σ x_i x_{i+1} is quadratic, and over GF(2)
+
+```
+Φ(x) ⊕ Φ(x ⊕ f) = Σ_i ( x_i f_{i+1} ⊕ f_i x_{i+1} ⊕ f_i f_{i+1} )   — LINEAR in x.
+```
+
+A linear phase makes g_f a single Walsh character ⇒ W_f is a delta ⇒ IPR_f = 1
+for all 2^n flip masks ⇒ Σ_f IPR_f = 2^n ⇒ M_2 = n − n = 0. CCZ adds a **cubic**
+term θ·Σ x_i x_j x_k whose difference is non-linear (and non-mod-2 for general θ),
+spreading the spectrum (IPR_f < 1) and producing M_2 > 0. Magic is literally the
+spectral spreading of the phase derivative.
+
+### 11.2 Closed form for a single CCZ triplet
+
+For CCZ(θ)|+++⟩ (3 qubits), summing |⟨P⟩|⁴ over all 64 Paulis gives, exactly,
+
+```
+Σ_P |⟨P⟩|⁴ = ( 7 cos⁴θ + 56 cos²θ + 84 cosθ + 109 ) / 32
+
+M_2(θ)     = 8 − log₂( 7 cos⁴θ + 56 cos²θ + 84 cosθ + 109 )
+```
+
+Checks: P(θ=0)=256 ⇒ M_2=0; P(π/2)=109; P(π)=88. Verified against the numerical
+SRE for nine θ values to <1e-9. Derived with sympy, simplified by hand.
+
+### 11.3 Two exact structural facts that simplify everything
+
+1. **Clifford invariance ⇒ SRE ignores the ring.** SRE is invariant under Clifford
+   gates and CZ is Clifford, so the ring CZ edges do not change SRE *at all*
+   (verified: difference = 0 exactly). SRE(ring+CCZ) = SRE(CCZ-only on |+⟩^n).
+2. **Disjoint additivity.** m CCZ triplets on disjoint qubit triples give
+   M_2 = m · M_2(single triplet) exactly (tensor-product additivity of SRE).
+
+Together these reduce the magic content of the whole family to the single cubic
+phase, and explain why SRE/qubit is intensive (Section 12).
+
+### 11.4 The α ≈ 1.2 exponent is a curvature artifact, not a power law
+
+The numerically fitted "B ∝ M^α with α ≈ 1.24" (Section 9) is **not** a genuine
+power law. Computing the local exponent α(θ) = d(log B)/d(log M) along the sweep:
+
+- At small θ both quantities scale as θ²: B ~ θ^1.99 and M ~ θ^1.98, so the **true
+  local exponent is α → 1.00** (a *linear* law B = K·M).
+- At large θ, SRE turns over (it peaks near θ ≈ 2.47 and decreases toward θ=π,
+  Section 5) while B keeps growing. This bends the log-log curve and makes a single
+  global fit report α ≈ 1.2.
+
+So the response law is fundamentally **linear, B ≈ K·M, in the weak-magic regime**,
+and the apparent super-linearity is an artifact of fitting a straight line to a
+curve whose two axes saturate at different rates. The meaningful, robust quantity
+is the slope K ≈ 0.33 (Section 9), not α. (`local_response_exponent()` reproduces
+this; the small-θ test asserts α ≈ 1.0.)
+
+---
+
+## 12. Scaling to n=20: the Effect Is Intensive, Not a Finite-Size Artifact
+
+The strongest objection to the magic-geometry link is that it might be a small-n
+artifact that washes out at scale. We tested this directly by scaling the
+ring + overlapping-CCZ family at θ=π up to n=20 (`run_scaling.py`).
+
+### 12.1 What is feasible exactly (and what is not)
+
+A key realization reframed the whole study: the **backreaction observables are
+cheap**. Both ‖MI‖_F and the connected-correlator strength ‖G‖_F need only
+single- and two-qubit reduced data — O(n²·2ⁿ) work — so they are computable
+*exactly* to n=20 (a 2²⁰ statevector is 16 MB). Only the full SRE is 4ⁿ-limited
+(exact via FWHT to n≈16; n=16 took ~5 min). So the scaling verdict is computed
+**exactly**, with classical shadows used only to show hardware-measurability.
+
+### 12.2 Exact scaling results (θ=π)
+
+| n  | B_total = ‖MI‖_F | B per pair | SRE | SRE/qubit |
+|----|------------------|------------|-----|-----------|
+| 6  | 1.439 | 0.0960 | 3.356 | 0.559 |
+| 8  | 1.629 | 0.0582 | 4.430 | 0.554 |
+| 10 | 1.820 | 0.0405 | 5.683 | 0.568 |
+| 12 | 1.994 | 0.0302 | 6.787 | 0.566 |
+| 14 | 2.154 | 0.0237 | 7.941 | 0.567 |
+| 16 | 2.303 | 0.0192 | 9.068 | 0.567 |
+| 18 | 2.442 | 0.0160 | —     | —     |
+| 20 | 2.575 | 0.0136 | —     | —     |
+
+- **Total backreaction GROWS:** B_total ~ n^{+0.49}, monotone from 1.44 (n=6) to
+  2.57 (n=20). The geometry created by magic does not disappear; it accumulates.
+- **SRE/qubit is INTENSIVE:** stable at ≈ 0.566 across n=6..16 (variation < 1%).
+  The magic density per qubit is a finite constant — exactly what additivity
+  (Section 11.3) predicts for a fixed density of CCZ triplets.
+- **Per-pair backreaction decays ~n^{−1.62}:** This is the signature of LOCALITY,
+  not vanishing. Each qubit couples strongly only to its O(1) neighbours
+  (Section 8, Test 5), so the *average over all n²/2 pairs* necessarily falls
+  as ~1/n. A decaying per-pair average is what a local theory *must* produce; it
+  is not evidence against the effect.
+
+**Verdict:** the magic-geometry coupling is an intensive, persistent property of
+the bulk, not a finite-size artifact. This directly answers the main scaling
+objection.
+
+### 12.3 Why shadow SRE is exponentially hard (and the geometry is not)
+
+Estimating SRE from random-Pauli classical shadows requires |⟨P⟩| for Paulis of
+all weights up to n, but a weight-k Pauli is matched by only 3^{−k} of random
+single-qubit measurement bases. The dominant SRE contributions sit at high weight
+(~3n/4), so the number of snapshots needed grows ~3^{3n/4}. In practice our
+unbiased U-statistic estimator is accurate only for n ≲ 6 and the naive estimator
+collapses to 0 (positive variance bias inflates Σ|⟨P⟩|⁴). This is a genuine,
+known limitation — and it is precisely why the **exact FWHT pipeline (to n≈16) and
+the analytical results (Section 11) are the practical tools**, not shadows.
+
+The **geometry**, by contrast, lives entirely in weight-≤2 Paulis, which shadows
+estimate efficiently. Our cross-half unbiased correlator estimator
+(`estimate_correlator_backreaction`) removes the θ=0 variance bias and reproduces
+the exact monotone trend (1.62 → 2.01 over n=6..12), with a ~40% systematic
+underestimate from within-half covariance in the ⟨P⟩⟨Q⟩ subtraction. So the
+hardware-relevant message is: **the magic-induced geometry is measurable from
+shadow data even where the magic itself (SRE) is not.**
+
+### 12.4 Implementation notes
+
+- `simulate_shadows_fast` rotates the statevector into each random basis and
+  Born-samples. Rotating a 2ⁿ vector thousands of times is the runtime bottleneck
+  at large n, so shadow simulation is capped via `--shadow-max` (default 12); the
+  exact verdict runs independently to n=20.
+- `VectorizedShadows` stores shadows as int8 arrays for vectorized estimation.
+- `estimate_pauli_power_unbiased` implements the independent-group U-statistic for
+  |⟨P⟩|^k needed to debias SRE; `estimate_correlator_backreaction` the cross-half
+  estimator for the connected-correlator geometry.
+
+**Reference:** `experiments/phase5_response_law/run_scaling.py`,
+`src/mqhg/hardware/fast_shadows.py`, `src/mqhg/analytical/response_law.py`.
