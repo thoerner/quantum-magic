@@ -3,7 +3,7 @@
 Implements the core experiment:
 1. Construct Clifford graph states (no magic)
 2. Construct hypergraph states with CCZ gates (magic)
-3. Compare geometry deformation under localized excitations
+3. Measure geometric deformation (MI structure) relative to stabilizer baseline
 4. Test Conjectures A, B, C from the research spec
 """
 
@@ -36,10 +36,8 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 def experiment_conjecture_b(n: int = 6):
     """Conjecture B: Stabilizer geometry is too rigid.
 
-    Build stabilizer-only graph states, inject T-gate excitations,
-    verify geometry deforms LESS than for magic states.
-    T-gate is used because Pauli excitations are gauge-invariant
-    (they preserve |correlator|² for all states).
+    Build stabilizer-only graph states and verify they have
+    zero pairwise MI (flat/trivial emergent geometry).
     """
     print(f"\n{'='*60}")
     print(f"CONJECTURE B TEST: Stabilizer rigidity (n={n})")
@@ -56,23 +54,23 @@ def experiment_conjecture_b(n: int = 6):
         state = gs.prepare()
         sre = stabilizer_renyi_entropy(state)
         nl_magic = nonlocal_magic(state)
-
-        br_obs = BackreactionObservable(state)
-        br = br_obs.measure(0, "T")
+        br = BackreactionObservable(state).measure()
 
         print(f"\n  {name} graph:")
         print(f"    SRE = {sre:.6f} (should be ~0 for stabilizer)")
         print(f"    Non-local magic = {nl_magic:.6f}")
-        print(f"    Backreaction ||ΔD||_F = {br.distance_change_frobenius:.6f}")
+        print(f"    MI deformation = {br.mi_deformation:.6f} (should be ~0: flat geometry)")
+        print(f"    MI max = {br.mi_max:.6f}")
 
 
 def experiment_conjecture_c(n: int = 6):
-    """Conjecture C: Magic enables backreaction.
+    """Conjecture C: Magic enables backreaction (geometric deformation).
 
-    Add non-Clifford hyperedges and verify geometry DOES deform.
+    Add non-Clifford hyperedges and verify geometry emerges
+    (non-zero MI structure) proportional to magic content.
     """
     print(f"\n{'='*60}")
-    print(f"CONJECTURE C TEST: Magic enables backreaction (n={n})")
+    print(f"CONJECTURE C TEST: Magic creates geometry (n={n})")
     print(f"{'='*60}")
 
     # Stabilizer baseline: ring graph state
@@ -82,23 +80,20 @@ def experiment_conjecture_c(n: int = 6):
     # Magic version: ring + 3-body hyperedges
     hg = Hypergraph(n)
     for i in range(n):
-        hg.add_edge((i, (i + 1) % n))  # Ring edges (Clifford)
+        hg.add_edge((i, (i + 1) % n))
     for i in range(0, n - 2, 2):
-        hg.add_edge((i, i + 1, i + 2))  # 3-body magic edges
+        hg.add_edge((i, i + 1, i + 2))
     state_magic = HypergraphState(hg).prepare()
 
-    # Compare using T-gate excitation (non-Pauli, so it genuinely probes geometry)
     for label, state in [("Stabilizer (ring)", state_stab), ("Magic (ring+CCZ)", state_magic)]:
-        sre = stabilizer_renyi_entropy(state)
-        nl = nonlocal_magic(state)
-        br_obs = BackreactionObservable(state)
-        br = br_obs.measure(0, "T")
+        br = BackreactionObservable(state).measure()
 
         print(f"\n  {label}:")
-        print(f"    SRE = {sre:.6f}")
-        print(f"    Non-local magic = {nl:.6f}")
-        print(f"    Backreaction ||ΔD||_F = {br.distance_change_frobenius:.6f}")
-        print(f"    Backreaction (local) = {br.distance_change_local:.6f}")
+        print(f"    SRE = {br.sre:.6f}")
+        print(f"    Non-local magic = {br.nonlocal_magic_val:.6f}")
+        print(f"    MI deformation = {br.mi_deformation:.6f}")
+        print(f"    MI max = {br.mi_max:.6f}")
+        print(f"    MI mean = {br.mi_mean:.6f}")
 
 
 def experiment_magic_sweep(n: int = 6):
@@ -164,16 +159,14 @@ def experiment_state_comparison(n: int = 6):
     labels = []
 
     for name, state in states.items():
-        sre = stabilizer_renyi_entropy(state)
-        nl = nonlocal_magic(state)
-        br_obs = BackreactionObservable(state)
-        br = br_obs.measure(0, "T")
+        br = BackreactionObservable(state).measure()
 
-        magic_vals.append(nl)
-        br_vals.append(br.distance_change_frobenius)
+        magic_vals.append(br.nonlocal_magic_val)
+        br_vals.append(br.mi_deformation)
         labels.append(name)
 
-        print(f"  {name:20s}: SRE={sre:.4f}, NL-magic={nl:.4f}, BR={br.distance_change_frobenius:.4f}")
+        print(f"  {name:20s}: SRE={br.sre:.4f}, NL-magic={br.nonlocal_magic_val:.4f}, "
+              f"MI-deform={br.mi_deformation:.4f}")
 
     # Plot magic vs backreaction
     plot_magic_vs_backreaction(
@@ -203,16 +196,14 @@ def experiment_falsification_test1(n: int = 6):
 
     for label, state in [("High-ent, low-magic (Clifford)", state_high_ent),
                          ("High-ent, high-magic", state_high_both)]:
-        sre = stabilizer_renyi_entropy(state)
-        nl = nonlocal_magic(state)
         mean_ent = np.mean([subsystem_entropy(state, [q]) for q in range(n)])
-        br = BackreactionObservable(state).measure(0, "T")
+        br = BackreactionObservable(state).measure()
 
         print(f"\n  {label}:")
         print(f"    Mean entropy = {mean_ent:.4f}")
-        print(f"    SRE = {sre:.4f}")
-        print(f"    Non-local magic = {nl:.4f}")
-        print(f"    Backreaction = {br.distance_change_frobenius:.4f}")
+        print(f"    SRE = {br.sre:.4f}")
+        print(f"    Non-local magic = {br.nonlocal_magic_val:.4f}")
+        print(f"    MI deformation = {br.mi_deformation:.4f}")
 
 
 if __name__ == "__main__":

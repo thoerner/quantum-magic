@@ -15,11 +15,10 @@ import numpy as np
 from numpy.typing import NDArray
 
 from ..core.statevector import Statevector
-from ..core.gates import pauli_x, pauli_z, t_gate, phase_gate
 from ..states.hypergraph import Hypergraph, HypergraphState
 from ..measures.entanglement import mutual_information_matrix
 from ..measures.magic import stabilizer_renyi_entropy, nonlocal_magic
-from ..measures.geometry import mutual_info_distance_matrix, correlator_distance_matrix
+from ..measures.geometry import mutual_info_distance_matrix
 
 
 @dataclass
@@ -87,38 +86,22 @@ class HypergraphSandbox:
             backreaction=0.0,  # Computed separately with perturbation
         )
 
-    def measure_backreaction(
-        self,
-        excitation_qubit: int,
-        excitation_type: str = "X",
-    ) -> float:
-        """Measure geometry deformation from a localized excitation.
+    def measure_backreaction(self, reference_mi: NDArray[np.float64] | None = None) -> float:
+        """Measure geometric deformation: ||MI(ψ) - MI_ref||_F.
 
-        B_i = ||D_after - D_before|| using correlator-based distance.
+        Backreaction = how much MI structure (emergent geometry) the state
+        has compared to the stabilizer reference (which has zero pairwise MI
+        for graph states). Magic creates geometry from flatness.
 
         Args:
-            excitation_qubit: Which qubit to perturb.
-            excitation_type: "X", "Z", or "T" for the type of excitation.
-
-        Returns:
-            Frobenius norm of the distance matrix change.
+            reference_mi: MI matrix of the reference state. If None, uses zero
+                         (appropriate for graph state references with no pairwise MI).
         """
-        state_before = self.prepare_state()
-        dist_before = correlator_distance_matrix(state_before)
-
-        if excitation_type == "X":
-            gate = pauli_x
-        elif excitation_type == "Z":
-            gate = pauli_z
-        elif excitation_type == "T":
-            gate = t_gate
-        else:
-            gate = phase_gate(float(excitation_type))
-
-        state_after = state_before.apply_gate(gate, [excitation_qubit])
-        dist_after = correlator_distance_matrix(state_after)
-
-        return float(np.linalg.norm(dist_after - dist_before, "fro"))
+        state = self.prepare_state()
+        mi = mutual_information_matrix(state)
+        if reference_mi is None:
+            reference_mi = np.zeros_like(mi)
+        return float(np.linalg.norm(mi - reference_mi, "fro"))
 
     @classmethod
     def sweep_magic(
@@ -147,7 +130,7 @@ class HypergraphSandbox:
             )
             sandbox = cls(cfg)
             result = sandbox.run()
-            br = sandbox.measure_backreaction(0, "T")
+            br = sandbox.measure_backreaction()
 
             results.append({
                 "phase": float(phi),

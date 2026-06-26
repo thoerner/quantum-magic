@@ -1,15 +1,17 @@
 """Backreaction observables.
 
-Measures whether localized excitations deform emergent geometry,
-and whether that deformation correlates with non-local magic.
+Measures geometric deformation from magic injection. In the holographic
+picture, stabilizer states have flat (trivial) emergent geometry, while
+magic creates non-trivial geometry. "Backreaction" quantifies this
+geometric deformation relative to a stabilizer reference.
 
 Key quantity:
-    B_i = ||D_after - D_before|| around excitation site i
+    B = ||MI(ψ_magic) - MI(ψ_stabilizer)||_F
 
 The central test:
-    Does B_i remain near zero for stabilizer-only states?
-    Does B_i increase with non-local magic?
-    Does B_i become incoherent for highly random states?
+    Does B remain near zero for stabilizer-only states?
+    Does B increase with non-local magic?
+    Is the deformation structured (not random)?
 """
 
 from __future__ import annotations
@@ -30,116 +32,75 @@ from ..measures.magic import stabilizer_renyi_entropy, nonlocal_magic
 class BackreactionResult:
     """Results from a backreaction measurement."""
 
-    site: int
-    excitation_type: str
-    distance_change_frobenius: float
-    distance_change_local: float
-    mi_change_frobenius: float
-    sre_before: float
-    sre_after: float
-    nonlocal_magic_before: float
-    nonlocal_magic_after: float
+    mi_deformation: float
+    mi_max: float
+    mi_mean: float
+    sre: float
+    nonlocal_magic_val: float
 
 
 class BackreactionObservable:
-    """Compute backreaction observables for a given state and excitation."""
+    """Compute backreaction as geometric deformation from stabilizer reference."""
 
-    def __init__(self, state: Statevector):
+    def __init__(self, state: Statevector, reference: Statevector | None = None):
+        """
+        Args:
+            state: The state to measure.
+            reference: Stabilizer reference state. If None, uses flat (zero MI)
+                      as reference (appropriate for highly-entangled stabilizer
+                      states like graph states that have no pairwise MI).
+        """
         self.state = state
         self.n = state.n_qubits
+        if reference is not None:
+            self.mi_ref = mutual_information_matrix(reference)
+        else:
+            self.mi_ref = np.zeros((self.n, self.n), dtype=np.float64)
 
-    def measure(
-        self,
-        site: int,
-        excitation_type: str = "X",
-        epsilon: float = 0.1,
-    ) -> BackreactionResult:
-        """Measure backreaction from a localized excitation.
+    def measure(self) -> BackreactionResult:
+        """Measure geometric deformation from the stabilizer reference.
 
-        Uses correlator-based distance (sensitive to local perturbations)
-        as the primary geometry proxy, with MI-based distance as fallback.
-
-        Args:
-            site: Qubit index to excite.
-            excitation_type: One of "X", "Z", "T", or a float (phase angle).
-            epsilon: Strength parameter for continuous excitations.
+        Backreaction = how much pairwise MI structure the state has
+        relative to the stabilizer baseline (which has flat/zero MI).
         """
-        state_before = self.state
+        mi = mutual_information_matrix(self.state)
+        mi_diff = mi - self.mi_ref
 
-        gate = self._get_excitation_gate(excitation_type, epsilon)
-        state_after = state_before.apply_gate(gate, [site])
+        mi_deformation = float(np.linalg.norm(mi_diff, "fro"))
+        mi_max = float(mi.max())
+        mi_mean = float(mi[np.triu_indices(self.n, k=1)].mean())
 
-        dist_before = correlator_distance_matrix(state_before)
-        dist_after = correlator_distance_matrix(state_after)
-
-        mi_before = mutual_information_matrix(state_before)
-        mi_after = mutual_information_matrix(state_after)
-
-        dist_change_fro = float(np.linalg.norm(dist_after - dist_before, "fro"))
-
-        local_diff = dist_after[site, :] - dist_before[site, :]
-        dist_change_local = float(np.linalg.norm(local_diff))
-
-        mi_change_fro = float(np.linalg.norm(mi_after - mi_before, "fro"))
-
-        sre_before = stabilizer_renyi_entropy(state_before)
-        sre_after = stabilizer_renyi_entropy(state_after)
-        nl_before = nonlocal_magic(state_before)
-        nl_after = nonlocal_magic(state_after)
+        sre = stabilizer_renyi_entropy(self.state)
+        nl = nonlocal_magic(self.state)
 
         return BackreactionResult(
-            site=site,
-            excitation_type=excitation_type,
-            distance_change_frobenius=dist_change_fro,
-            distance_change_local=dist_change_local,
-            mi_change_frobenius=mi_change_fro,
-            sre_before=sre_before,
-            sre_after=sre_after,
-            nonlocal_magic_before=nl_before,
-            nonlocal_magic_after=nl_after,
+            mi_deformation=mi_deformation,
+            mi_max=mi_max,
+            mi_mean=mi_mean,
+            sre=sre,
+            nonlocal_magic_val=nl,
         )
-
-    def measure_all_sites(self, excitation_type: str = "X") -> list[BackreactionResult]:
-        """Measure backreaction at every qubit site."""
-        return [self.measure(site, excitation_type) for site in range(self.n)]
 
     def response_coefficient(
         self,
-        site: int,
         n_strengths: int = 10,
     ) -> float:
-        """Estimate linear response coefficient dB/dε at small ε.
+        """Estimate linear response: how MI deformation scales with magic.
 
-        This tests Conjecture D: whether backreaction is proportional to
-        excitation strength in a linear-response regime.
+        Uses Rz(ε) applied to all qubits simultaneously as a magic injection
+        mechanism, measuring how MI structure emerges with increasing ε.
         """
         epsilons = np.linspace(0.01, 0.5, n_strengths)
-        backreactions = []
+        deformations = []
 
-        dist_before = correlator_distance_matrix(self.state)
         for eps in epsilons:
             gate = rz(eps)
-            state_after = self.state.apply_gate(gate, [site])
-            dist_after = correlator_distance_matrix(state_after)
-            br = float(np.linalg.norm(dist_after - dist_before, "fro"))
-            backreactions.append(br)
+            state_perturbed = self.state
+            for q in range(self.n):
+                state_perturbed = state_perturbed.apply_gate(gate, [q])
+            mi = mutual_information_matrix(state_perturbed)
+            deformation = float(np.linalg.norm(mi - self.mi_ref, "fro"))
+            deformations.append(deformation)
 
-        coeffs = np.polyfit(epsilons, backreactions, 1)
+        coeffs = np.polyfit(epsilons, deformations, 1)
         return float(coeffs[0])
-
-    @staticmethod
-    def _get_excitation_gate(excitation_type: str, epsilon: float) -> NDArray[np.complex128]:
-        if excitation_type == "X":
-            return pauli_x
-        elif excitation_type == "Z":
-            return pauli_z
-        elif excitation_type == "T":
-            return t_gate
-        elif excitation_type == "Rz":
-            return rz(epsilon)
-        else:
-            try:
-                angle = float(excitation_type)
-                return phase_gate(angle)
-            except ValueError:
-                raise ValueError(f"Unknown excitation type: {excitation_type}")
