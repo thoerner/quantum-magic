@@ -1,18 +1,17 @@
-"""Phase 5: Response Law Numerics.
+"""Phase 5: Response Law Numerics (Scaled).
 
-Tests whether there is a quantitative law relating non-local magic to
-geometric deformation (backreaction). Specifically:
+Tests the quantitative law B(θ) = K · M_NL(θ)^α across:
+- Multiple system sizes (n=6,8,10,12)
+- Multiple hypergraph families (varying k, topologies)
+- High phase resolution (50 points)
 
-  B(θ) = K · M_NL(θ)^α + ...
-
-where K is the response coefficient and α is the scaling exponent.
-
-Measures:
-- K_i (response coefficient) via regression of B vs M_NL across state families
-- Checks linearity, monotonicity, or absence of relationship
-- Reports R² and scaling exponent
+Key questions:
+1. Is K approximately universal across families?
+2. How does K scale with system size n?
+3. Does the scaling exponent α depend on hyperedge order k?
 """
 
+import argparse
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
@@ -24,9 +23,12 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from mqhg.states.hypergraph import HypergraphState, Hypergraph
+from mqhg.states.graph import GraphState
 from mqhg.measures.entanglement import mutual_information_matrix
 from mqhg.measures.magic import stabilizer_renyi_entropy, nonlocal_magic
+from mqhg.measures.geometry import average_curvature, spectral_dimension
 from mqhg.analysis.backreaction import BackreactionObservable
+from mqhg.io.results import ExperimentResult
 
 
 OUTPUT_DIR = Path(__file__).parent / "output"
@@ -149,39 +151,59 @@ def analyze_response_law(results: list[dict]):
     }
 
 
-def multi_family_response(n: int = 6):
-    """Test response law across multiple state families.
+def multi_family_response(n: int = 8, n_phases: int = 30):
+    """Test response law across expanded hypergraph families.
 
-    If K is approximately universal, the law is general.
-    If K depends strongly on the family, it's structure-specific.
+    Families include different hyperedge orders (k=3,4,5),
+    different topologies (ring, star, random), and varying overlap.
     """
     print(f"\n{'='*60}")
-    print(f"MULTI-FAMILY RESPONSE (n={n})")
+    print(f"MULTI-FAMILY RESPONSE (n={n}, {n_phases} phases)")
     print(f"{'='*60}")
 
     families = {}
-
-    # Family 1: Ring + 3-body (overlapping triplets)
     base_ring = [(i, (i + 1) % n) for i in range(n)]
-    magic_overlap = [(i, (i + 1) % n, (i + 2) % n) for i in range(0, n, 2)]
-
-    # Family 2: Ring + 3-body (non-overlapping triplets)
-    magic_nonoverlap = [(0, 1, 2), (3, 4, 5)] if n >= 6 else [(0, 1, 2)]
-
-    # Family 3: Complete graph + 3-body
-    base_complete = [(i, j) for i in range(n) for j in range(i + 1, n)]
-    magic_complete = [(0, 1, 2), (2, 3, 4)]
 
     family_configs = [
-        ("Ring + overlapping CCZ", base_ring, magic_overlap),
-        ("Ring + non-overlapping CCZ", base_ring, magic_nonoverlap),
-        ("Complete + CCZ", base_complete, magic_complete),
+        ("Ring + k=3 overlapping",
+         base_ring,
+         [(i, (i + 1) % n, (i + 2) % n) for i in range(0, n, 2)]),
+        ("Ring + k=3 non-overlapping",
+         base_ring,
+         [(i, i + 1, i + 2) for i in range(0, n - 2, 3)]),
+        ("Ring + k=4",
+         base_ring,
+         [(i, i + 1, i + 2, i + 3) for i in range(0, n - 3, 4)]),
     ]
+
+    if n >= 10:
+        family_configs.append((
+            "Ring + k=5",
+            base_ring,
+            [(i, i + 1, i + 2, i + 3, i + 4) for i in range(0, n - 4, 5)],
+        ))
+
+    # Random hypergraph family
+    rng = np.random.default_rng(42)
+    random_edges = []
+    for _ in range(n // 3):
+        k = rng.integers(3, min(6, n + 1))
+        edge = tuple(sorted(rng.choice(n, size=k, replace=False)))
+        random_edges.append(edge)
+    family_configs.append(("Ring + random k-body", base_ring, random_edges))
+
+    # Star base
+    base_star = [(0, i) for i in range(1, n)]
+    family_configs.append((
+        "Star + k=3",
+        base_star,
+        [(0, i, i + 1) for i in range(1, n - 1, 2)],
+    ))
 
     all_family_data = []
 
     for name, base, magic_e in family_configs:
-        phases = np.linspace(0.1, np.pi, 15)
+        phases = np.linspace(0.1, np.pi, n_phases)
         fam_results = []
 
         for phi in phases:
@@ -192,12 +214,10 @@ def multi_family_response(n: int = 6):
                 hg.add_edge(e, phi)
             state = HypergraphState(hg).prepare()
 
-            sre = stabilizer_renyi_entropy(state)
             nl = nonlocal_magic(state)
             br = BackreactionObservable(state).measure()
-            fam_results.append({"magic": nl, "deformation": br.mi_deformation})
+            fam_results.append({"magic": nl, "deformation": br.mi_deformation, "phase": float(phi)})
 
-        # Linear fit for this family
         m_vals = np.array([r["magic"] for r in fam_results])
         d_vals = np.array([r["deformation"] for r in fam_results])
         mask = m_vals > 0.01
@@ -209,34 +229,33 @@ def multi_family_response(n: int = 6):
         else:
             print(f"\n  {name}: insufficient data")
 
-    # Plot all families
-    fig, ax = plt.subplots(figsize=(10, 7))
+    # Plot
+    fig, ax = plt.subplots(figsize=(12, 8))
     colors = plt.cm.tab10(np.linspace(0, 1, len(all_family_data)))
 
     for idx, (name, m, d, coeffs) in enumerate(all_family_data):
-        ax.scatter(m, d, color=colors[idx], label=name, alpha=0.7)
+        ax.scatter(m, d, color=colors[idx], label=name, alpha=0.7, s=30)
         x_fit = np.linspace(m.min(), m.max(), 50)
         ax.plot(x_fit, np.polyval(coeffs, x_fit), "--", color=colors[idx], alpha=0.5)
 
     ax.set_xlabel("Non-local Magic (SRE₂)")
     ax.set_ylabel("MI Deformation (Backreaction)")
-    ax.set_title(f"Response Law Across Families (n={n})")
-    ax.legend()
+    ax.set_title(f"Response Law Across Hypergraph Families (n={n})")
+    ax.legend(fontsize=8)
     ax.grid(True, alpha=0.3)
     plt.tight_layout()
     fig.savefig(OUTPUT_DIR / "response_law_families.png", dpi=150, bbox_inches="tight")
     print(f"\n  Plot saved: {OUTPUT_DIR / 'response_law_families.png'}")
 
-    # Universality check
     k_values = [f["K"] for f in families.values()]
     if len(k_values) >= 2:
         cv = np.std(k_values) / np.mean(k_values) if np.mean(k_values) > 0 else 0
         print(f"\n  Response coefficients: {[f'{k:.4f}' for k in k_values]}")
         print(f"  Coefficient of variation: {cv:.3f}")
         if cv < 0.3:
-            print("  → Response coefficient is approximately UNIVERSAL across families.")
+            print("  → Response coefficient is approximately UNIVERSAL.")
         else:
-            print("  → Response coefficient is FAMILY-DEPENDENT (structure matters).")
+            print("  → Response coefficient is FAMILY-DEPENDENT.")
 
     return families
 
@@ -292,21 +311,84 @@ def plot_response_law(results: list[dict], analysis: dict):
     print(f"\n  Plot saved: {OUTPUT_DIR / 'response_law.png'}")
 
 
-if __name__ == "__main__":
-    n = int(sys.argv[1]) if len(sys.argv) > 1 else 6
+def multi_n_response(n_values: list[int] | None = None, n_phases: int = 30):
+    """Sweep response law across multiple system sizes to test K(n) scaling."""
+    if n_values is None:
+        n_values = [6, 8, 10]
 
-    # Main sweep
-    results = sweep_response_law(n, n_phases=30)
+    print(f"\n{'='*60}")
+    print(f"MULTI-N RESPONSE LAW (n={n_values}, {n_phases} phases)")
+    print(f"{'='*60}")
+
+    n_results = {}
+    for n in n_values:
+        print(f"\n  --- n={n} ---")
+        results = sweep_response_law(n, n_phases=n_phases)
+        analysis = analyze_response_law(results)
+        n_results[n] = {"sweep": results, "analysis": analysis}
+
+    # Plot K vs n
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ns = []
+    ks_lin = []
+    ks_pow = []
+    for n_val, data in n_results.items():
+        a = data["analysis"]
+        if a.get("K_linear"):
+            ns.append(n_val)
+            ks_lin.append(a["K_linear"])
+            ks_pow.append(a.get("K_power", 0))
+
+    if ns:
+        ax.plot(ns, ks_lin, "o-", label="K (linear fit)")
+        ax.set_xlabel("System size n")
+        ax.set_ylabel("Response coefficient K")
+        ax.set_title("Response Coefficient vs System Size")
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        plt.tight_layout()
+        fig.savefig(OUTPUT_DIR / "response_K_vs_n.png", dpi=150, bbox_inches="tight")
+        print(f"\n  Plot saved: {OUTPUT_DIR / 'response_K_vs_n.png'}")
+    plt.close(fig)
+
+    return n_results
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Response law numerics (scaled)")
+    parser.add_argument("-n", type=int, default=8, help="Primary system size")
+    parser.add_argument("--n-phases", type=int, default=50, help="Phase resolution")
+    parser.add_argument("--multi-n", nargs="+", type=int, default=None,
+                        help="System sizes for multi-n sweep")
+    args = parser.parse_args()
+
+    # Main sweep at primary n
+    results = sweep_response_law(args.n, n_phases=args.n_phases)
     analysis = analyze_response_law(results)
     plot_response_law(results, analysis)
 
     # Multi-family comparison
-    families = multi_family_response(n)
+    families = multi_family_response(args.n, n_phases=min(args.n_phases, 30))
 
-    # Save
-    output = {"sweep": results, "analysis": analysis}
+    # Multi-n sweep
+    multi_n_sizes = args.multi_n or [6, 8, 10]
+    n_results = multi_n_response(multi_n_sizes, n_phases=min(args.n_phases, 30))
+
+    # Save all
+    output = {
+        "primary_sweep": results,
+        "analysis": analysis,
+        "families": {k: v.get("K") for k, v in families.items()},
+        "multi_n": {str(k): v["analysis"] for k, v in n_results.items()},
+    }
     with open(OUTPUT_DIR / "response_law_data.json", "w") as f:
         json.dump(output, f, indent=2, default=str)
-    print(f"\n  Data saved to {OUTPUT_DIR / 'response_law_data.json'}")
+
+    result = ExperimentResult(
+        name="response_law",
+        params={"n": args.n, "n_phases": args.n_phases, "multi_n": multi_n_sizes},
+        data=output,
+    )
+    result.save(OUTPUT_DIR)
 
     print(f"\n\nPhase 5 response law analysis complete. Output in {OUTPUT_DIR}")

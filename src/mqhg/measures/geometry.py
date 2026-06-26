@@ -22,14 +22,16 @@ def mutual_info_distance_matrix(
 ) -> NDArray[np.float64]:
     """Emergent distance from mutual information.
 
-    d(i,j) = -ξ * log(I(i:j) + ε)
+    d(i,j) = max(0, -ξ * log(I(i:j) + ε))
 
     High mutual information → short distance.
     Low mutual information → long distance.
+    Clamped to non-negative to ensure valid metric for Dijkstra.
     """
     mi = mutual_information_matrix(state)
     with np.errstate(divide="ignore"):
         distances = -scale * np.log(mi + epsilon)
+    np.maximum(distances, 0.0, out=distances)
     np.fill_diagonal(distances, 0.0)
     return distances
 

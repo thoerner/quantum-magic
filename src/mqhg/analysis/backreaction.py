@@ -25,7 +25,7 @@ from ..core.statevector import Statevector
 from ..core.gates import pauli_x, pauli_z, t_gate, phase_gate, rz
 from ..measures.entanglement import mutual_information_matrix
 from ..measures.geometry import mutual_info_distance_matrix, correlator_distance_matrix, emergent_metric
-from ..measures.magic import stabilizer_renyi_entropy, nonlocal_magic
+from ..measures.magic import stabilizer_renyi_entropy, nonlocal_magic, _fast_sre_direct, _subsystem_sre
 
 
 @dataclass
@@ -70,8 +70,12 @@ class BackreactionObservable:
         mi_max = float(mi.max())
         mi_mean = float(mi[np.triu_indices(self.n, k=1)].mean())
 
-        sre = stabilizer_renyi_entropy(self.state)
-        nl = nonlocal_magic(self.state)
+        # Compute total SRE once, then derive non-local magic from it
+        sre = _fast_sre_direct(self.state.amplitudes, self.n, alpha=2)
+        local_magic = sum(
+            _subsystem_sre(self.state, [i]) for i in range(self.n)
+        )
+        nl = max(0.0, sre - local_magic)
 
         return BackreactionResult(
             mi_deformation=mi_deformation,
