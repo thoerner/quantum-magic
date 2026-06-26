@@ -19,7 +19,7 @@ from ..core.gates import pauli_x, pauli_z, t_gate, phase_gate
 from ..states.hypergraph import Hypergraph, HypergraphState
 from ..measures.entanglement import mutual_information_matrix
 from ..measures.magic import stabilizer_renyi_entropy, nonlocal_magic
-from ..measures.geometry import mutual_info_distance_matrix
+from ..measures.geometry import mutual_info_distance_matrix, correlator_distance_matrix
 
 
 @dataclass
@@ -94,7 +94,7 @@ class HypergraphSandbox:
     ) -> float:
         """Measure geometry deformation from a localized excitation.
 
-        B_i = ||D_after - D_before|| localized around excitation site.
+        B_i = ||D_after - D_before|| using correlator-based distance.
 
         Args:
             excitation_qubit: Which qubit to perturb.
@@ -104,9 +104,8 @@ class HypergraphSandbox:
             Frobenius norm of the distance matrix change.
         """
         state_before = self.prepare_state()
-        dist_before = mutual_info_distance_matrix(state_before)
+        dist_before = correlator_distance_matrix(state_before)
 
-        # Apply excitation
         if excitation_type == "X":
             gate = pauli_x
         elif excitation_type == "Z":
@@ -117,7 +116,7 @@ class HypergraphSandbox:
             gate = phase_gate(float(excitation_type))
 
         state_after = state_before.apply_gate(gate, [excitation_qubit])
-        dist_after = mutual_info_distance_matrix(state_after)
+        dist_after = correlator_distance_matrix(state_after)
 
         return float(np.linalg.norm(dist_after - dist_before, "fro"))
 

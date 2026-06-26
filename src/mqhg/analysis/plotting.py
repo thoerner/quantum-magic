@@ -41,13 +41,16 @@ def plot_magic_vs_backreaction(
     ax.set_title(title)
     ax.grid(True, alpha=0.3)
 
-    # Fit line
+    # Fit line (skip if data has no variance)
     if len(magic_values) > 2:
-        coeffs = np.polyfit(magic_values, backreaction_values, 1)
-        x_fit = np.linspace(min(magic_values), max(magic_values), 50)
-        ax.plot(x_fit, np.polyval(coeffs, x_fit), "r--", alpha=0.5,
-                label=f"Linear fit: slope={coeffs[0]:.3f}")
-        ax.legend()
+        x_range = max(magic_values) - min(magic_values)
+        y_range = max(backreaction_values) - min(backreaction_values)
+        if x_range > 1e-10 and y_range > 1e-10:
+            coeffs = np.polyfit(magic_values, backreaction_values, 1)
+            x_fit = np.linspace(min(magic_values), max(magic_values), 50)
+            ax.plot(x_fit, np.polyval(coeffs, x_fit), "r--", alpha=0.5,
+                    label=f"Linear fit: slope={coeffs[0]:.3f}")
+            ax.legend()
 
     plt.tight_layout()
     if save_path:

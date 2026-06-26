@@ -11,6 +11,7 @@ from numpy.typing import NDArray
 import networkx as nx
 
 from ..core.statevector import Statevector
+from ..core.gates import pauli_tensor
 from .entanglement import mutual_information_matrix
 
 
@@ -55,6 +56,47 @@ def emergent_metric(state: Statevector, epsilon: float = 1e-10) -> NDArray[np.fl
             metric[i, j] = lengths[i][j]
 
     return metric
+
+
+def correlator_distance_matrix(
+    state: Statevector,
+    epsilon: float = 1e-10,
+    scale: float = 1.0,
+) -> NDArray[np.float64]:
+    """Emergent distance from connected Pauli-Pauli correlators.
+
+    d(i,j) = -ξ * log(C(i,j) + ε)
+
+    where C(i,j) = Σ_{P,Q ∈ {X,Y,Z}} |⟨P_i Q_j⟩ - ⟨P_i⟩⟨Q_j⟩|²
+
+    More sensitive than MI for detecting geometry changes from local
+    excitations, especially in highly entangled states where pairwise
+    single-qubit MI is degenerate.
+    """
+    n = state.n_qubits
+    paulis = ["X", "Y", "Z"]
+
+    single_exp: dict[tuple[int, str], complex] = {}
+    for i in range(n):
+        for p in paulis:
+            P = pauli_tensor(p)
+            single_exp[(i, p)] = state.expectation(P, [i])
+
+    distances = np.zeros((n, n), dtype=np.float64)
+    for i in range(n):
+        for j in range(i + 1, n):
+            corr_sum = 0.0
+            for p in paulis:
+                for q in paulis:
+                    PQ = np.kron(pauli_tensor(p), pauli_tensor(q))
+                    exp_pq = state.expectation(PQ, [i, j])
+                    connected = exp_pq - single_exp[(i, p)] * single_exp[(j, q)]
+                    corr_sum += abs(connected) ** 2
+            d = -scale * np.log(np.sqrt(corr_sum) + epsilon)
+            distances[i, j] = d
+            distances[j, i] = d
+
+    return distances
 
 
 def mutual_info_graph(

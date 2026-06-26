@@ -22,7 +22,7 @@ from numpy.typing import NDArray
 from ..core.statevector import Statevector
 from ..core.gates import pauli_x, pauli_z, t_gate, phase_gate, rz
 from ..measures.entanglement import mutual_information_matrix
-from ..measures.geometry import mutual_info_distance_matrix, emergent_metric
+from ..measures.geometry import mutual_info_distance_matrix, correlator_distance_matrix, emergent_metric
 from ..measures.magic import stabilizer_renyi_entropy, nonlocal_magic
 
 
@@ -56,6 +56,9 @@ class BackreactionObservable:
     ) -> BackreactionResult:
         """Measure backreaction from a localized excitation.
 
+        Uses correlator-based distance (sensitive to local perturbations)
+        as the primary geometry proxy, with MI-based distance as fallback.
+
         Args:
             site: Qubit index to excite.
             excitation_type: One of "X", "Z", "T", or a float (phase angle).
@@ -63,29 +66,22 @@ class BackreactionObservable:
         """
         state_before = self.state
 
-        # Apply excitation
         gate = self._get_excitation_gate(excitation_type, epsilon)
         state_after = state_before.apply_gate(gate, [site])
 
-        # Distance matrices
-        dist_before = mutual_info_distance_matrix(state_before)
-        dist_after = mutual_info_distance_matrix(state_after)
+        dist_before = correlator_distance_matrix(state_before)
+        dist_after = correlator_distance_matrix(state_after)
 
-        # MI matrices
         mi_before = mutual_information_matrix(state_before)
         mi_after = mutual_information_matrix(state_after)
 
-        # Global change
         dist_change_fro = float(np.linalg.norm(dist_after - dist_before, "fro"))
 
-        # Local change (rows/cols involving the excited qubit)
         local_diff = dist_after[site, :] - dist_before[site, :]
         dist_change_local = float(np.linalg.norm(local_diff))
 
-        # MI change
         mi_change_fro = float(np.linalg.norm(mi_after - mi_before, "fro"))
 
-        # Magic before/after
         sre_before = stabilizer_renyi_entropy(state_before)
         sre_after = stabilizer_renyi_entropy(state_after)
         nl_before = nonlocal_magic(state_before)
@@ -120,17 +116,16 @@ class BackreactionObservable:
         epsilons = np.linspace(0.01, 0.5, n_strengths)
         backreactions = []
 
+        dist_before = correlator_distance_matrix(self.state)
         for eps in epsilons:
             gate = rz(eps)
             state_after = self.state.apply_gate(gate, [site])
-            dist_before = mutual_info_distance_matrix(self.state)
-            dist_after = mutual_info_distance_matrix(state_after)
+            dist_after = correlator_distance_matrix(state_after)
             br = float(np.linalg.norm(dist_after - dist_before, "fro"))
             backreactions.append(br)
 
-        # Linear fit: B ≈ K * ε
         coeffs = np.polyfit(epsilons, backreactions, 1)
-        return float(coeffs[0])  # slope = response coefficient K
+        return float(coeffs[0])
 
     @staticmethod
     def _get_excitation_gate(excitation_type: str, epsilon: float) -> NDArray[np.complex128]:

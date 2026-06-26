@@ -130,18 +130,22 @@ def nonlocal_magic(
 
 
 def _subsystem_sre(state: Statevector, subsystem: list[int], alpha: int = 2) -> float:
-    """SRE-like measure for a subsystem (mixed state proxy).
+    """SRE for a subsystem, valid only for approximately-pure reduced states.
 
-    Uses Pauli expectations restricted to the subsystem:
-    M_2(ρ_A) ≈ -log₂[ (1/2^|A|) Σ_{P_A} Tr(P_A ρ_A)^4 ] - |A|
+    The standard SRE formula conflates mixedness with magic for mixed states
+    (e.g., I/2 is a stabilizer state but the formula gives M=1). For a pure
+    global state, subsystem mixedness arises from entanglement, not local magic.
+    We only count local magic when the subsystem is approximately pure.
     """
-    n = state.n_qubits
     k = len(subsystem)
-    num_paulis_k = 4**k
-
     rho = state.reduced_density_matrix(subsystem)
 
-    # Compute Tr(P_A ρ_A) for all k-qubit Paulis
+    purity = float(np.real(np.trace(rho @ rho)))
+    pure_threshold = 1.0 - 1e-6
+    if purity < pure_threshold:
+        return 0.0
+
+    num_paulis_k = 4**k
     pauli_strings_k = _all_pauli_strings(k)
     expectations_sq = np.zeros(num_paulis_k, dtype=np.float64)
 
