@@ -410,12 +410,16 @@ single- and two-qubit reduced data — O(n²·2ⁿ) work — so they are computa
 | 12 | 1.994 | 0.0302 | 6.787 | 0.566 |
 | 14 | 2.154 | 0.0237 | 7.941 | 0.567 |
 | 16 | 2.303 | 0.0192 | 9.068 | 0.567 |
-| 18 | 2.442 | 0.0160 | —     | —     |
+| 18 | 2.442 | 0.0160 | 10.205 | 0.567 |
 | 20 | 2.575 | 0.0136 | —     | —     |
+
+(n=18 exact SRE took ~46 min on the workstation; n=20 exact SRE is ~16× more,
+~13 h, so it is left blank — the n=20 exact *backreaction* is reported above and
+the intensive SRE/qubit is already firmly established by n=6..18.)
 
 - **Total backreaction GROWS:** B_total ~ n^{+0.49}, monotone from 1.44 (n=6) to
   2.57 (n=20). The geometry created by magic does not disappear; it accumulates.
-- **SRE/qubit is INTENSIVE:** stable at ≈ 0.566 across n=6..16 (variation < 1%).
+- **SRE/qubit is INTENSIVE:** stable at ≈ 0.567 across n=6..18 (variation < 1%).
   The magic density per qubit is a finite constant — exactly what additivity
   (Section 11.3) predicts for a fixed density of CCZ triplets.
 - **Per-pair backreaction decays ~n^{−1.62}:** This is the signature of LOCALITY,
