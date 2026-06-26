@@ -41,9 +41,10 @@ The spec calls for:
 - Min-cut computation from network topology
 - Entanglement wedge boundary tracking under perturbation
 
-### 4. No Experiments Have Been Run
+### 4. ~~No Experiments Have Been Run~~ (RESOLVED)
 
-All scripts exist but no output data has been generated. The `experiments/*/output/` directories are empty. Phase 6 decision memo cannot be filled without results.
+Phase 3 and Phase 4 experiments have been run at n=6. Key results documented in
+`REASONING.md`. Remaining work: scale to larger n, run falsification tests 2–7.
 
 ## Medium-Impact (Limits Quality or Scale)
 
@@ -67,9 +68,14 @@ Experiment results print to stdout only. No JSON/HDF5 serialization for:
 
 `src/mqhg/models/approximate.py`: the `_clifford_encoder()` method does not produce a known stabilizer code. It applies Hadamards + a trivial structure. Should use a proper code construction (e.g., random stabilizer code from tableau, or a known small code family).
 
-### 8. Non-Local Magic for Mixed States Is a Proxy
+### 8. ~~Non-Local Magic for Mixed States Is a Proxy~~ (RESOLVED)
 
-`_subsystem_sre()` in `measures/magic.py` and the shadow-based version in `hardware/sre_estimator.py` both use a Pauli-expectation proxy for mixed-state SRE. This is not a true magic monotone for mixed states. The literature acknowledges this limitation but a better estimator (e.g., convex-roof extension or channel-based measure) is not implemented.
+Fixed: `_subsystem_sre()` now only computes SRE for approximately-pure subsystems.
+For mixed subsystems (from entanglement), local magic = 0. This avoids the
+fundamental issue that the SRE formula conflates mixedness with magic for non-pure
+states (see `REASONING.md` §1 for full derivation). The shadow-based version in
+`hardware/sre_estimator.py` still uses the Pauli-expectation proxy but operates on
+the global pure state, not mixed subsystems.
 
 ## Lower-Priority (Nice to Have)
 
